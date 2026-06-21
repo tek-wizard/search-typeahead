@@ -62,6 +62,20 @@ public class SuggestionService {
         return results;
     }
 
+    /**
+     * Basic ranking — sorted by totalCount only, no recency boost.
+     * Used by /suggest/compare to show the difference.
+     */
+    public List<SuggestionDto> getBasicSuggestions(String prefix) {
+        String normalizedPrefix = (prefix == null || prefix.isBlank()) ? "" : prefix.trim().toLowerCase();
+        List<Map.Entry<String, Long>> matches = queryStore.getPrefixMatches(normalizedPrefix);
+        return matches.stream()
+                .map(e -> new SuggestionDto(e.getKey(), e.getValue()))
+                .sorted((a, b) -> Long.compare(b.getCount(), a.getCount()))
+                .limit(MAX_SUGGESTIONS)
+                .collect(Collectors.toList());
+    }
+
     /** Returns top 10 queries globally, used for trending section. */
     private List<SuggestionDto> getTopGlobal() {
         List<Map.Entry<String, Long>> all = queryStore.getPrefixMatches("");

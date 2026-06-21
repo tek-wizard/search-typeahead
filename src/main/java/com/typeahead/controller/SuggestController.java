@@ -41,6 +41,25 @@ public class SuggestController {
         return result;
     }
 
+    /**
+     * Side-by-side comparison of basic vs trending ranking for the same prefix.
+     * Basic = sorted by total count only.
+     * Trending = sorted by totalCount + recentCount × 10.
+     * Use this to demonstrate the recency boost in your viva.
+     */
+    @GetMapping("/suggest/compare")
+    public Map<String, Object> compare(@RequestParam(defaultValue = "") String q) {
+        List<SuggestionDto> basic = suggestionService.getBasicSuggestions(q);
+        List<SuggestionDto> trending = suggestionService.getSuggestions(q);
+
+        return Map.of(
+            "prefix", q,
+            "basic_ranking", basic,
+            "trending_ranking", trending,
+            "note", "Search a query a few times via POST /search, then compare — recently searched queries rank higher in trending_ranking"
+        );
+    }
+
     /** Debug endpoint showing which cache node owns the prefix and whether it's a hit. */
     @GetMapping("/cache/debug")
     public Map<String, Object> cacheDebug(@RequestParam String prefix) {
