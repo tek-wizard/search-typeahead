@@ -1,6 +1,8 @@
 package com.typeahead.cache;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.typeahead.model.SuggestionDto;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -9,8 +11,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Distributed cache facade.
- * Uses a ConsistentHashRing to route each prefix key to one of 3 logical CacheNodes.
- * Each node is independently synchronized.
+ *
+ * Uses ConsistentHashRing to route each prefix to one of 3 logical CacheNodes.
+ * Each CacheNode stores its data in Redis under its own namespace:
+ *   cache-node-1:iph, cache-node-2:java, cache-node-3:pyt, etc.
+ *
+ * The ring ensures the same prefix always goes to the same node,
+ * and that rebalancing is minimal if nodes are added/removed.
  */
 @Component
 public class DistributedCache {
@@ -18,46 +25,32 @@ public class DistributedCache {
     private final ConsistentHashRing ring;
     private final Map<String, CacheNode> nodes = new ConcurrentHashMap<>();
 
-    public DistributedCache() {
+    public DistributedCache(RedisTemplate<String, String> redisTemplate, ObjectMapper objectMapper) {
         List<String> nodeNames = List.of("cache-node-1", "cache-node-2", "cache-node-3");
         this.ring = new ConsistentHashRing(nodeNames);
         for (String name : nodeNames) {
-            nodes.put(name, new CacheNode(name));
+            nodes.put(name, new CacheNode(name, redisTemplate, objectMapper));
         }
     }
 
     public List<SuggestionDto> get(String prefix) {
-        String nodeName = ring.getNode(prefix);
-        CacheNode node = nodes.get(nodeName);
-        synchronized (node) {
-            return node.get(prefix);
-        }
+        return nodeFor(prefix).get(prefix);
     }
 
     public void put(String prefix, List<SuggestionDto> suggestions) {
-        String nodeName = ring.getNode(prefix);
-        CacheNode node = nodes.get(nodeName);
-        synchronized (node) {
-            node.put(prefix, suggestions);
-        }
+        nodeFor(prefix).put(prefix, suggestions);
     }
 
     public void invalidate(String prefix) {
-        String nodeName = ring.getNode(prefix);
-        CacheNode node = nodes.get(nodeName);
-        synchronized (node) {
-            node.invalidate(prefix);
-        }
+        nodeFor(prefix).invalidate(prefix);
     }
 
     public CacheDebugInfo getDebugInfo(String prefix) {
         String nodeName = ring.getNode(prefix);
         CacheNode node = nodes.get(nodeName);
-        synchronized (node) {
-            boolean hit = node.containsKey(prefix);
-            long ttlRemaining = node.getTtlRemaining(prefix);
-            return new CacheDebugInfo(nodeName, hit, ttlRemaining, ring.getHashPosition(prefix));
-        }
+        boolean hit = node.containsKey(prefix);
+        long ttlRemaining = node.getTtlRemaining(prefix);
+        return new CacheDebugInfo(nodeName, hit, ttlRemaining, ring.getHashPosition(prefix));
     }
 
     public Map<String, long[]> getStats() {
@@ -66,6 +59,10 @@ public class DistributedCache {
             stats.put(node.getName(), new long[]{node.getHitCount(), node.getMissCount()});
         }
         return stats;
+    }
+
+    private CacheNode nodeFor(String prefix) {
+        return nodes.get(ring.getNode(prefix));
     }
 
     public static class CacheDebugInfo {
