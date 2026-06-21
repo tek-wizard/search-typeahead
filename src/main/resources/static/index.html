@@ -86,9 +86,12 @@
 
   <div class="section-title">Performance Stats</div>
   <div class="stats-bar">
+    <div class="stat-card"><div class="stat-label">p95 Latency</div><div class="stat-value" id="statP95">-</div></div>
+    <div class="stat-card"><div class="stat-label">p99 Latency</div><div class="stat-value" id="statP99">-</div></div>
+    <div class="stat-card"><div class="stat-label">Cache Hit Rate</div><div class="stat-value" id="statHitRate">-</div></div>
+    <div class="stat-card"><div class="stat-label">Write Reduction</div><div class="stat-value" id="statWriteReduction">-</div></div>
     <div class="stat-card"><div class="stat-label">Buffer Size</div><div class="stat-value" id="statBuffer">-</div></div>
-    <div class="stat-card"><div class="stat-label">Total Flushed</div><div class="stat-value" id="statFlushed">-</div></div>
-    <div class="stat-card"><div class="stat-label">Flush Batches</div><div class="stat-value" id="statBatches">-</div></div>
+    <div class="stat-card"><div class="stat-label">Total Requests</div><div class="stat-value" id="statRequests">-</div></div>
   </div>
 </div>
 
@@ -206,11 +209,14 @@
 
   async function loadStats() {
     try {
-      const res = await fetch('/batch/stats');
+      const res = await fetch('/stats');
       const data = await res.json();
-      document.getElementById('statBuffer').textContent = data.currentBufferSize;
-      document.getElementById('statFlushed').textContent = data.totalSearchesFlushed;
-      document.getElementById('statBatches').textContent = data.totalFlushBatches;
+      document.getElementById('statP95').textContent = data.latency.p95Ms + 'ms';
+      document.getElementById('statP99').textContent = data.latency.p99Ms + 'ms';
+      document.getElementById('statHitRate').textContent = data.cache.hitRatePercent + '%';
+      document.getElementById('statWriteReduction').textContent = data.batchWrites.writeReductionFactor;
+      document.getElementById('statBuffer').textContent = data.batchWrites.currentBufferSize;
+      document.getElementById('statRequests').textContent = data.latency.totalRequests;
     } catch (e) {}
   }
 
