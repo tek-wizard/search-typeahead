@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Search Typeahead</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; color: #333; }
+
+    .header { background: #1a73e8; color: white; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+    .header h1 { font-size: 20px; font-weight: 600; }
+
+    .container { max-width: 720px; margin: 40px auto; padding: 0 20px; }
+
+    .search-wrapper { position: relative; }
+    .search-box { display: flex; border: 2px solid #ddd; border-radius: 8px; background: white; overflow: visible;
+                   box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: border-color 0.2s; }
+    .search-box:focus-within { border-color: #1a73e8; }
+    #searchInput { flex: 1; padding: 14px 16px; font-size: 16px; border: none; outline: none; border-radius: 8px 0 0 8px; }
+    #searchBtn { background: #1a73e8; color: white; border: none; padding: 0 24px; font-size: 15px; cursor: pointer;
+                  border-radius: 0 6px 6px 0; transition: background 0.2s; }
+    #searchBtn:hover { background: #1557b0; }
+
+    #dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: white;
+                 border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+                 z-index: 100; overflow: hidden; display: none; }
+    .suggestion-item { padding: 11px 16px; cursor: pointer; display: flex; justify-content: space-between;
+                        align-items: center; font-size: 15px; transition: background 0.1s; }
+    .suggestion-item:hover, .suggestion-item.active { background: #f0f4ff; }
+    .suggestion-item .count { font-size: 12px; color: #888; }
+
+    #resultBox { margin-top: 20px; padding: 16px 20px; background: white; border-radius: 8px;
+                  border-left: 4px solid #1a73e8; box-shadow: 0 2px 8px rgba(0,0,0,0.06); display: none; }
+    #resultBox .label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+    #resultBox .value { font-size: 16px; font-weight: 600; color: #1a73e8; margin-top: 4px; }
+
+    .section-title { font-size: 13px; font-weight: 600; color: #555; text-transform: uppercase;
+                      letter-spacing: 0.6px; margin: 36px 0 12px; }
+
+    #trendingList { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow: hidden; }
+    .trending-item { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;
+                      border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background 0.1s; }
+    .trending-item:last-child { border-bottom: none; }
+    .trending-item:hover { background: #f5f7ff; }
+    .trending-item .rank { font-size: 13px; color: #aaa; width: 24px; }
+    .trending-item .query { flex: 1; font-size: 14px; }
+    .trending-item .score { font-size: 12px; color: #888; }
+
+    .stats-bar { margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .stat-card { background: white; border-radius: 8px; padding: 12px 16px; flex: 1; min-width: 140px;
+                  box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .stat-card .stat-label { font-size: 11px; color: #999; text-transform: uppercase; }
+    .stat-card .stat-value { font-size: 22px; font-weight: 700; color: #1a73e8; margin-top: 2px; }
+
+    .loading { color: #aaa; font-size: 14px; padding: 12px 16px; }
+    .error-msg { color: #d32f2f; font-size: 13px; margin-top: 8px; display: none; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <svg width="24" height="24" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24">
+    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+  </svg>
+  <h1>Search Typeahead System</h1>
+</div>
+
+<div class="container">
+  <div class="search-wrapper">
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="Start typing to search..." autocomplete="off">
+      <button id="searchBtn">Search</button>
+    </div>
+    <div id="dropdown"></div>
+  </div>
+
+  <div id="errorMsg" class="error-msg"></div>
+  <div id="resultBox">
+    <div class="label">Search Result</div>
+    <div class="value" id="resultValue"></div>
+  </div>
+
+  <div class="section-title">Trending Searches</div>
+  <div id="trendingList"><div class="loading">Loading...</div></div>
+
+  <div class="section-title">Performance Stats</div>
+  <div class="stats-bar">
+    <div class="stat-card"><div class="stat-label">Buffer Size</div><div class="stat-value" id="statBuffer">-</div></div>
+    <div class="stat-card"><div class="stat-label">Total Flushed</div><div class="stat-value" id="statFlushed">-</div></div>
+    <div class="stat-card"><div class="stat-label">Flush Batches</div><div class="stat-value" id="statBatches">-</div></div>
+  </div>
+</div>
+
+<script>
+  const input = document.getElementById('searchInput');
+  const dropdown = document.getElementById('dropdown');
+  const resultBox = document.getElementById('resultBox');
+  const resultValue = document.getElementById('resultValue');
+  const errorMsg = document.getElementById('errorMsg');
+
+  let debounceTimer = null;
+  let activeIndex = -1;
+  let suggestions = [];
+
+  // Debounced typeahead
+  input.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    activeIndex = -1;
+    debounceTimer = setTimeout(() => fetchSuggestions(input.value), 300);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { activeIndex = Math.min(activeIndex + 1, suggestions.length - 1); renderDropdown(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { activeIndex = Math.max(activeIndex - 1, -1); renderDropdown(); e.preventDefault(); }
+    else if (e.key === 'Enter') {
+      if (activeIndex >= 0 && suggestions[activeIndex]) {
+        input.value = suggestions[activeIndex].query;
+      }
+      closeDropdown();
+      submitSearch(input.value);
+    } else if (e.key === 'Escape') { closeDropdown(); }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.search-wrapper')) closeDropdown();
+  });
+
+  document.getElementById('searchBtn').addEventListener('click', () => {
+    closeDropdown();
+    submitSearch(input.value);
+  });
+
+  async function fetchSuggestions(q) {
+    if (!q.trim()) { closeDropdown(); return; }
+    try {
+      const res = await fetch(`/suggest?q=${encodeURIComponent(q)}`);
+      suggestions = await res.json();
+      renderDropdown();
+    } catch (e) { closeDropdown(); }
+  }
+
+  function renderDropdown() {
+    if (!suggestions.length) { closeDropdown(); return; }
+    dropdown.style.display = 'block';
+    dropdown.innerHTML = suggestions.map((s, i) =>
+      `<div class="suggestion-item ${i === activeIndex ? 'active' : ''}" data-idx="${i}">
+        <span>${highlight(s.query, input.value)}</span>
+        <span class="count">${s.count.toLocaleString()}</span>
+      </div>`
+    ).join('');
+    dropdown.querySelectorAll('.suggestion-item').forEach(el => {
+      el.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        input.value = suggestions[parseInt(el.dataset.idx)].query;
+        closeDropdown();
+        submitSearch(input.value);
+      });
+    });
+  }
+
+  function highlight(text, prefix) {
+    if (!prefix) return text;
+    const idx = text.toLowerCase().indexOf(prefix.toLowerCase());
+    if (idx < 0) return text;
+    return text.slice(0, idx) + '<strong>' + text.slice(idx, idx + prefix.length) + '</strong>' + text.slice(idx + prefix.length);
+  }
+
+  function closeDropdown() { dropdown.style.display = 'none'; }
+
+  async function submitSearch(query) {
+    if (!query.trim()) return;
+    errorMsg.style.display = 'none';
+    try {
+      const res = await fetch('/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
+      const data = await res.json();
+      resultBox.style.display = 'block';
+      resultValue.textContent = `${data.message} — "${data.query}"`;
+      loadTrending();
+      loadStats();
+    } catch (e) {
+      errorMsg.textContent = 'Search failed. Is the server running?';
+      errorMsg.style.display = 'block';
+    }
+  }
+
+  async function loadTrending() {
+    try {
+      const res = await fetch('/suggest?q=');
+      const data = await res.json();
+      const list = document.getElementById('trendingList');
+      if (!data.length) { list.innerHTML = '<div class="loading">No trending searches yet.</div>'; return; }
+      list.innerHTML = data.map((s, i) =>
+        `<div class="trending-item" onclick="fillSearch('${s.query.replace(/'/g, "\\'")}')">
+          <span class="rank">${i + 1}</span>
+          <span class="query">${s.query}</span>
+          <span class="score">${s.count.toLocaleString()}</span>
+        </div>`
+      ).join('');
+    } catch (e) {}
+  }
+
+  async function loadStats() {
+    try {
+      const res = await fetch('/batch/stats');
+      const data = await res.json();
+      document.getElementById('statBuffer').textContent = data.currentBufferSize;
+      document.getElementById('statFlushed').textContent = data.totalSearchesFlushed;
+      document.getElementById('statBatches').textContent = data.totalFlushBatches;
+    } catch (e) {}
+  }
+
+  function fillSearch(query) {
+    input.value = query;
+    submitSearch(query);
+  }
+
+  // Initial load
+  loadTrending();
+  loadStats();
+  setInterval(loadStats, 10000);
+</script>
+</body>
+</html>
